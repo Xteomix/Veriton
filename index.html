@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ВЕРИТОН — анализ подлинности голоса</title>
+<style>
+:root{
+  --bg:#13161C; --panel:#1C2028; --panel2:#242933; --line:#333A46;
+  --ink:#E4E7EB; --dim:#9AA3B0; --faint:#6B7480;
+  --trace:#56C8E0; --caution:#E4A649; --alert:#E2645F; --ok:#6FBF8B;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-size:15px; line-height:1.55; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:840px; margin:0 auto; padding:24px 18px 64px}
+
+header{border-bottom:1px solid var(--line); padding-bottom:18px; margin-bottom:24px}
+h1{font-size:22px; letter-spacing:.02em; margin:0 0 6px; font-weight:600}
+header p{margin:0; color:var(--dim); font-size:14px; max-width:58ch}
+
+.intake{
+  border:1px dashed var(--line); border-radius:10px; background:var(--panel);
+  padding:26px 20px; text-align:center; transition:border-color .15s,background .15s;
+}
+.intake.hot{border-color:var(--trace); background:var(--panel2)}
+.intake p{margin:0 0 16px; color:var(--dim); font-size:14px}
+.btnrow{display:flex; gap:10px; justify-content:center; flex-wrap:wrap}
+button{
+  font:inherit; font-size:14px; padding:9px 16px; border-radius:7px;
+  border:1px solid var(--line); background:var(--panel2); color:var(--ink);
+  cursor:pointer; transition:background .15s,border-color .15s;
+}
+button:hover{background:#2C323D; border-color:#48505E}
+button:focus-visible{outline:2px solid var(--trace); outline-offset:2px}
+button.primary{background:var(--trace); border-color:var(--trace); color:#0E1116; font-weight:600}
+button.primary:hover{background:#6FD4E9}
+button.rec{border-color:var(--alert); color:var(--alert)}
+button:disabled{opacity:.45; cursor:default}
+input[type=file]{display:none}
+
+.status{margin-top:14px; font-size:13px; color:var(--faint); min-height:18px}
+
+section{margin-top:26px}
+.hd{
+  display:flex; align-items:baseline; justify-content:space-between;
+  border-bottom:1px solid var(--line); padding-bottom:7px; margin-bottom:14px;
+}
+.hd h2{font-size:15px; margin:0; font-weight:600; letter-spacing:.01em}
+.hd span{font-size:12px; color:var(--faint); font-family:var(--mono)}
+
+/* verdict */
+.verdict{border:1px solid var(--line); border-radius:10px; background:var(--panel); overflow:hidden}
+.vtop{display:flex; align-items:center; gap:18px; padding:20px}
+.dial{flex:0 0 92px; height:92px; position:relative}
+.dial svg{transform:rotate(-90deg)}
+.dialnum{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-family:var(--mono); font-size:24px; font-weight:600;
+}
+.vtext h3{margin:0 0 4px; font-size:18px; font-weight:600}
+.vtext p{margin:0; color:var(--dim); font-size:14px}
+.vmeta{
+  border-top:1px solid var(--line); padding:11px 20px; display:flex; gap:22px;
+  flex-wrap:wrap; font-size:12.5px; color:var(--faint); font-family:var(--mono);
+}
+
+/* features */
+.feat{border-bottom:1px solid var(--line); padding:14px 0}
+.feat:last-child{border-bottom:0}
+.frow{display:flex; align-items:baseline; gap:10px; margin-bottom:7px}
+.fname{font-weight:600; font-size:14px}
+.fval{margin-left:auto; font-family:var(--mono); font-size:13.5px}
+.fbar{height:5px; border-radius:3px; background:var(--panel2); position:relative; overflow:hidden}
+.fbar i{position:absolute; left:0; top:0; bottom:0; border-radius:3px; display:block}
+.fnote{margin-top:7px; font-size:13px; color:var(--dim)}
+.tag{
+  font-size:10.5px; font-family:var(--mono); padding:2px 6px; border-radius:4px;
+  border:1px solid currentColor; letter-spacing:.04em;
+}
+
+canvas{width:100%; display:block; border-radius:8px; background:var(--panel)}
+.caption{margin:8px 0 0; font-size:12.5px; color:var(--faint)}
+
+.note{
+  border-left:2px solid var(--caution); padding:10px 0 10px 14px;
+  color:var(--dim); font-size:13.5px; margin-top:18px;
+}
+.hidden{display:none}
+footer{margin-top:40px; padding-top:16px; border-top:1px solid var(--line); font-size:12.5px; color:var(--faint)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>ВЕРИТОН</h1>
+  <p>Анализ записи голоса на признаки синтеза речи. Разбирает сигнал на измеримые характеристики и показывает, какие из них отклоняются от свойств живой речи.</p>
+</header>
+
+<div class="intake" id="drop">
+  <p>Перетащите аудиофайл сюда, выберите его или запишите голос прямо сейчас</p>
+  <div class="btnrow">
+    <button class="primary" id="pick">Выбрать файл</button>
+    <button class="rec" id="rec">Записать с микрофона</button>
+  </div>
+  <input type="file" id="file" accept="audio/*">
+  <div class="status" id="status"></div>
+</div>
+
+<div id="out" class="hidden">
+
+  <section>
+    <div class="hd"><h2>Заключение</h2><span id="src"></span></div>
+    <div class="verdict">
+      <div class="vtop">
+        <div class="dial">
+          <svg width="92" height="92" viewBox="0 0 92 92">
+            <circle cx="46" cy="46" r="39" fill="none" stroke="#242933" stroke-width="9"/>
+            <circle id="arc" cx="46" cy="46" r="39" fill="none" stroke="#56C8E0"
+                    stroke-width="9" stroke-linecap="round" stroke-dasharray="245" stroke-dashoffset="245"/>
+          </svg>
+          <div class="dialnum" id="score">—</div>
+        </div>
+        <div class="vtext">
+          <h3 id="label">—</h3>
+          <p id="sub"></p>
+        </div>
+      </div>
+      <div class="vmeta" id="meta"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="hd"><h2>Спектрограмма</h2><span id="spectxt"></span></div>
+    <canvas id="spec" height="260"></canvas>
+    <p class="caption">Горизонталь — время, вертикаль — частота, яркость — энергия. Резкий горизонтальный обрыв в верхней части кадра характерен для вокодеров и кодеков.</p>
+  </section>
+
+  <section>
+    <div class="hd"><h2>Измеренные признаки</h2><span>вклад в оценку</span></div>
+    <div id="feats"></div>
+  </section>
+
+  <section>
+    <div class="hd"><h2>Данные для обучения модели</h2><span>этап 2</span></div>
+    <div class="btnrow" style="justify-content:flex-start">
+      <button id="csv">Скачать строку признаков (CSV)</button>
+      <button id="json">Скачать полный отчёт (JSON)</button>
+      <button id="again">Проанализировать другую запись</button>
+    </div>
+    <p class="caption" style="margin-top:12px">Каждая проанализированная запись даёт строку из 9 числовых признаков. Накопив такие строки с метками «живая речь» и «синтез», вы обучаете на них классификатор и заменяете эвристические веса обученными.</p>
+  </section>
+
+  <div class="note" id="warn"></div>
+</div>
+
+<footer>
+  Версия 1.0 — эвристическая базовая линия. Пороги заданы по опубликованным свойствам речевого сигнала и подлежат замене на веса, полученные обучением на собственном датасете.
+</footer>
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   1. БАЗОВЫЙ УРОВЕНЬ: быстрое преобразование Фурье (radix-2)
+   ============================================================ */
+function fft(re, im){
+  const n = re.length;
+  for(let i=1, j=0; i<n; i++){
+    let bit = n>>1;
+    for(; j & bit; bit>>=1) j ^= bit;
+    j ^= bit;
+    if(i<j){ const tr=re[i]; re[i]=re[j]; re[j]=tr; const ti=im[i]; im[i]=im[j]; im[j]=ti; }
+  }
+  for(let len=2; len<=n; len<<=1){
+    const ang = -2*Math.PI/len, wr = Math.cos(ang), wi = Math.sin(ang);
+    for(let i=0; i<n; i+=len){
+      let cr=1, ci=0;
+      for(let k=0; k<len/2; k++){
+        const ur=re[i+k], ui=im[i+k];
+        const xr=re[i+k+len/2], xi=im[i+k+len/2];
+        const vr = xr*cr - xi*ci, vi = xr*ci + xi*cr;
+        re[i+k]=ur+vr; im[i+k]=ui+vi;
+        re[i+k+len/2]=ur-vr; im[i+k+len/2]=ui-vi;
+        const nr = cr*wr - ci*wi; ci = cr*wi + ci*wr; cr = nr;
+      }
+    }
+  }
+}
+
+const hann = n => { const w = new Float64Array(n);
+  for(let i=0;i<n;i++) w[i] = 0.5 - 0.5*Math.cos(2*Math.PI*i/(n-1)); return w; };
+
+/* ============================================================
+   2. ПРЕДОБРАБОТКА
+   ============================================================ */
+function toMono(buf){
+  const n = buf.length, ch = buf.numberOfChannels;
+  const out = new Float32Array(n);
+  for(let c=0;c<ch;c++){ const d = buf.getChannelData(c); for(let i=0;i<n;i++) out[i]+=d[i]; }
+  if(ch>1) for(let i=0;i<n;i++) out[i]/=ch;
+  return out;
+}
+// Децимация с усреднением — для анализа основного тона на 8 кГц
+function decimate(x, factor){
+  const m = Math.floor(x.length/factor), out = new Float32Array(m);
+  for(let i=0;i<m;i++){ let s=0; for(let k=0;k<factor;k++) s+=x[i*factor+k]; out[i]=s/factor; }
+  return out;
+}
+
+/* ============================================================
+   3. ОСНОВНОЙ ТОН: нормированная автокорреляция
+   ============================================================ */
+function pitchTrack(x, sr){
+  const win = 512, hop = Math.round(sr*0.01);
+  const minLag = Math.floor(sr/400), maxLag = Math.floor(sr/70);
+  const f0 = [], conf = [], amp = [];
+  for(let p=0; p+win<=x.length; p+=hop){
+    let e0=0; for(let i=0;i<win;i++) e0 += x[p+i]*x[p+i];
+    if(e0 < 1e-9){ f0.push(0); conf.push(0); amp.push(0); continue; }
+    const R = new Float64Array(maxLag+2);
+    let best=0, bl=0;
+    for(let lag=minLag; lag<=maxLag && p+win+lag<=x.length; lag++){
+      let num=0, den=0;
+      for(let i=0;i<win;i++){ num += x[p+i]*x[p+i+lag]; den += x[p+i+lag]*x[p+i+lag]; }
+      const r = num/Math.sqrt(e0*den + 1e-12);
+      R[lag] = r;
+      if(r>best){ best=r; bl=lag; }
+    }
+    // Параболическая интерполяция вершины: целый лаг даёт шаг по частоте
+    // около 2 Гц, чего недостаточно для измерения джиттера.
+    let lagF = bl;
+    if(bl>minLag && bl<maxLag){
+      const a=R[bl-1], b=R[bl], c=R[bl+1], den=2*(2*b-a-c);
+      if(Math.abs(den)>1e-12){
+        const d=(c-a)/den;
+        if(Math.abs(d)<1) lagF = bl + d;
+      }
+    }
+    if(best>0.32 && lagF>0){
+      f0.push(sr/lagF); conf.push(best); amp.push(Math.sqrt(e0/win));
+    } else { f0.push(0); conf.push(0); amp.push(Math.sqrt(e0/win)); }
+  }
+  return {f0, conf, amp};
+}
+
+// Устойчивые озвученные участки: не короче 5 кадров подряд.
+// Границы участков дают ложные скачки тона, их в микроколебания включать нельзя.
+function voicedRuns(f0, minLen){
+  const runs = []; let st = -1;
+  for(let i=0;i<=f0.length;i++){
+    const on = i<f0.length && f0[i]>0;
+    if(on && st<0) st = i;
+    if(!on && st>=0){ if(i-st >= minLen) runs.push([st,i]); st = -1; }
+  }
+  return runs;
+}
+const MAXSTEP = 0.15;   // перепад тона больше 15 % — срыв слежения, а не джиттер
+
+// Локальный джиттер: средний относительный перепад периода между соседними кадрами
+function jitter(f0){
+  let s=0, n=0, sum=0;
+  for(const [a,b] of voicedRuns(f0,5)){
+    for(let i=a+1;i<b;i++){
+      const p1 = 1/f0[i-1], p2 = 1/f0[i];
+      if(Math.abs(p2-p1)/((p1+p2)/2) > MAXSTEP) continue;
+      s += Math.abs(p2-p1); sum += p2; n++;
+    }
+  }
+  return n>=10 ? (s/n)/(sum/n) : null;
+}
+// Шиммер: средний перепад амплитуды между соседними озвученными кадрами, в дБ
+function shimmer(f0, amp){
+  let s=0, n=0;
+  for(const [a,b] of voicedRuns(f0,5)){
+    for(let i=a+1;i<b;i++){
+      if(amp[i]<1e-6 || amp[i-1]<1e-6) continue;
+      const d = Math.abs(20*Math.log10(amp[i]/amp[i-1]));
+      if(d > 12) continue;                 // скачок громкости — это смена звука, не шиммер
+      s += d; n++;
+    }
+  }
+  return n>=10 ? s/n : null;
+}
+
+/* ============================================================
+   4. СПЕКТРАЛЬНЫЕ ПРИЗНАКИ
+   ============================================================ */
+function spectral(x, sr){
+  const N = 1024, hop = Math.round(sr*0.012), w = hann(N);
+  const cols = [], flat = [], roll = [], hf = [];
+  const re = new Float64Array(N), im = new Float64Array(N);
+  for(let p=0; p+N<=x.length; p+=hop){
+    for(let i=0;i<N;i++){ re[i]=x[p+i]*w[i]; im[i]=0; }
+    fft(re,im);
+    const half = N>>1, mag = new Float64Array(half);
+    let tot=0;
+    for(let i=0;i<half;i++){ mag[i]=Math.sqrt(re[i]*re[i]+im[i]*im[i]); tot+=mag[i]; }
+    cols.push(mag);
+    if(tot < 1e-6) continue;                         // тишина — в статистику не берём
+    // спектральная плоскостность
+    let lg=0, ar=0;
+    for(let i=1;i<half;i++){ lg += Math.log(mag[i]+1e-12); ar += mag[i]; }
+    flat.push(Math.exp(lg/(half-1)) / (ar/(half-1) + 1e-12));
+    // частота спада 95 % энергии
+    let acc=0, lim=0.95*tot, k=0;
+    for(k=0;k<half;k++){ acc+=mag[k]; if(acc>=lim) break; }
+    roll.push(k*sr/N);
+    // доля энергии выше 6 кГц
+    const b6 = Math.floor(6000*N/sr);
+    let e=0; for(let i=b6;i<half;i++) e+=mag[i];
+    hf.push(e/tot);
+  }
+  return {cols, N, hop,
+    flatness: mean(flat), rolloff: median(roll), hfRatio: mean(hf)};
+}
+
+/* ============================================================
+   5. ПАУЗЫ И ФОНОВЫЙ ШУМ
+   ============================================================ */
+function silenceStats(x, sr){
+  const win = Math.round(sr*0.02), hop = win;
+  const db = [];
+  for(let p=0; p+win<=x.length; p+=hop){
+    let s=0; for(let i=0;i<win;i++) s += x[p+i]*x[p+i];
+    db.push(10*Math.log10(s/win + 1e-14));
+  }
+  const sorted = [...db].sort((a,b)=>a-b);
+  const floor = sorted[Math.floor(sorted.length*0.10)];
+  const peak  = sorted[Math.floor(sorted.length*0.95)];
+  const thr = Math.min(floor + 10, peak - 25);
+
+  // разброс уровня в паузах: у живой записи есть фон комнаты, у синтеза — «стерильная» тишина
+  const quiet = db.filter(v => v < thr);
+  const floorSd = quiet.length > 8 ? std(quiet) : null;
+  // доля кадров с цифровой тишиной
+  const digital = db.filter(v => v < -75).length / db.length;
+
+  // длительности пауз
+  const runs = []; let cur = 0;
+  for(const v of db){ if(v < thr){ cur++; } else { if(cur) runs.push(cur*0.02); cur = 0; } }
+  if(cur) runs.push(cur*0.02);
+  const breath = runs.filter(d => d >= 0.12 && d <= 1.2);
+  // равномерность пауз: коэффициент вариации
+  const cv = breath.length >= 3 ? std(breath)/mean(breath) : null;
+  return {floorSd, digital, pauseCv: cv, pauseCount: breath.length,
+          speechDb: peak - floor};
+}
+
+/* ============================================================
+   6. СТАТИСТИКА
+   ============================================================ */
+const mean = a => a.length ? a.reduce((s,v)=>s+v,0)/a.length : null;
+const std  = a => { if(a.length<2) return 0; const m = mean(a);
+  return Math.sqrt(a.reduce((s,v)=>s+(v-m)*(v-m),0)/(a.length-1)); };
+const median = a => { if(!a.length) return null; const s=[...a].sort((x,y)=>x-y);
+  const h = s.length>>1; return s.length%2 ? s[h] : (s[h-1]+s[h])/2; };
+
+/* ============================================================
+   7. ОЦЕНКА ПРИЗНАКОВ
+   Каждый признак → подозрительность 0..1 с явным порогом.
+   На этапе 2 веса заменяются обученными.
+   ============================================================ */
+// кусочно-линейное отображение: value → 0..1
+function ramp(v, safe, bad){
+  if(v === null || v === undefined || !isFinite(v)) return null;
+  const t = (v - safe)/(bad - safe);
+  return Math.max(0, Math.min(1, t));
+}
+
+function evaluate(F){
+  const S = [];
+  S.push({
+    key:"jitter", name:"Джиттер основного тона", weight:1.6,
+    value:F.jitter, fmt:v => (v*100).toFixed(2)+" %",
+    norm:"живая речь: 0,4–2,5 %",
+    susp: F.jitter===null ? null : ramp(F.jitter, 0.006, 0.0015),
+    note:"Высота голоса у человека непрерывно микроколеблется из-за работы гортани. Слишком ровный тон — признак генерации."
+  });
+  S.push({
+    key:"shimmer", name:"Шиммер амплитуды", weight:1.3,
+    value:F.shimmer, fmt:v => v.toFixed(2)+" дБ",
+    norm:"живая речь: 0,3–1,5 дБ",
+    susp: F.shimmer===null ? null : ramp(F.shimmer, 0.45, 0.12),
+    note:"Громкость соседних периодов колебания голосовых связок никогда не совпадает точно."
+  });
+  S.push({
+    key:"f0sd", name:"Изменчивость интонации", weight:1.0,
+    value:F.f0sd, fmt:v => v.toFixed(1)+" Гц",
+    norm:"живая речь: 15–60 Гц",
+    susp: F.f0sd===null ? null : ramp(F.f0sd, 18, 6),
+    note:"Монотонный интонационный контур характерен для части систем синтеза."
+  });
+  S.push({
+    key:"rolloff", name:"Верхняя граница спектра", weight:1.5,
+    value:F.rolloff, fmt:v => (v/1000).toFixed(2)+" кГц",
+    norm:"зависит от тракта записи",
+    susp: F.rolloff===null ? null : ramp(F.rolloff, 7800, 4200),
+    note:"Резкий обрыв спектра говорит о ресинтезе или узкополосном кодеке. Сам по себе не доказывает подделку — телефонный канал даёт тот же эффект."
+  });
+  S.push({
+    key:"flatness", name:"Спектральная плоскостность", weight:1.1,
+    value:F.flatness, fmt:v => v.toFixed(4),
+    norm:"живая речь: 0,01–0,12",
+    susp: F.flatness===null ? null : ramp(F.flatness, 0.030, 0.004),
+    note:"Отражает соотношение шумовой и тональной составляющих. Вокодеры сглаживают шумовую часть."
+  });
+  S.push({
+    key:"hf", name:"Доля энергии выше 6 кГц", weight:0.9,
+    value:F.hfRatio, fmt:v => (v*100).toFixed(2)+" %",
+    norm:"живая речь: 1–8 %",
+    susp: F.hfRatio===null ? null : ramp(F.hfRatio, 0.020, 0.003),
+    note:"Шипящие и придыхание дают энергию в верхних частотах; синтез часто их недостаёт."
+  });
+  S.push({
+    key:"floor", name:"Разброс фонового шума", weight:1.7,
+    value:F.floorSd, fmt:v => v.toFixed(2)+" дБ",
+    norm:"живая запись: 1,5–6 дБ",
+    susp: F.floorSd===null ? null : ramp(F.floorSd, 1.8, 0.35),
+    note:"В настоящей записи всегда есть шум помещения и микрофона, и он колеблется. Идеально ровная тишина между словами — сильный признак синтеза."
+  });
+  S.push({
+    key:"digital", name:"Доля цифровой тишины", weight:1.4,
+    value:F.digital, fmt:v => (v*100).toFixed(1)+" %",
+    norm:"живая запись: около 0 %",
+    susp: F.digital===null ? null : ramp(F.digital, 0.02, 0.25),
+    note:"Абсолютный ноль в паузах физически невозможен при записи микрофоном."
+  });
+  S.push({
+    key:"pause", name:"Равномерность пауз", weight:0.8,
+    value:F.pauseCv, fmt:v => v.toFixed(3),
+    norm:"живая речь: 0,35–0,9",
+    susp: F.pauseCv===null ? null : ramp(F.pauseCv, 0.40, 0.12),
+    note:"Человек делает паузы для вдоха неравномерно; генератор расставляет их по шаблону."
+  });
+
+  let num = 0, den = 0;
+  for(const s of S) if(s.susp !== null){ num += s.susp*s.weight; den += s.weight; }
+  const score = den ? Math.round(100*num/den) : null;
+  return {items:S, score, coverage:den};
+}
+
+/* ============================================================
+   8. РАЗБОР ЗАПИСИ
+   ============================================================ */
+const MAXSEC = 30;
+
+async function analyze(arrayBuffer, sourceName){
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const buf = await ctx.decodeAudioData(arrayBuffer);
+  await ctx.close();
+
+  const sr = buf.sampleRate;
+  let x = toMono(buf);
+  if(x.length > sr*MAXSEC) x = x.slice(0, sr*MAXSEC);
+  if(x.length < sr*0.6) throw new Error("Запись короче 0,6 секунды — признаки не измеримы.");
+
+  // нормализация по пику
+  let pk = 0; for(let i=0;i<x.length;i++){ const a = Math.abs(x[i]); if(a>pk) pk=a; }
+  if(pk > 0) for(let i=0;i<x.length;i++) x[i] /= pk;
+
+  // основной тон — на 8 кГц
+  const fac = Math.max(1, Math.round(sr/8000));
+  const xs = fac>1 ? decimate(x, fac) : x, srs = sr/fac;
+  const pt = pitchTrack(xs, srs);
+
+  const voiced = pt.f0.filter(v=>v>0);
+  const sp = spectral(x, sr);
+  const sl = silenceStats(x, sr);
+
+  const F = {
+    jitter: jitter(pt.f0),
+    shimmer: shimmer(pt.f0, pt.amp),
+    f0sd: voiced.length>10 ? std(voiced) : null,
+    f0mean: voiced.length>10 ? mean(voiced) : null,
+    voicedRatio: pt.f0.length ? voiced.length/pt.f0.length : 0,
+    rolloff: sp.rolloff, flatness: sp.flatness, hfRatio: sp.hfRatio,
+    floorSd: sl.floorSd, digital: sl.digital, pauseCv: sl.pauseCv,
+    pauseCount: sl.pauseCount, dynRange: sl.speechDb,
+    duration: x.length/sr, sampleRate: sr, source: sourceName
+  };
+
+  // Без озвученной речи признаки голоса не определены. Без этой проверки
+  // тишина или музыка дали бы ложное заключение о синтезе.
+  if(F.voicedRatio < 0.05 || F.f0mean === null)
+    throw new Error("в записи не обнаружена речь — признаки голоса не измеримы");
+
+  return {F, verdict: evaluate(F), spec: sp, sr, dur: x.length/sr};
+}
+
+/* ============================================================
+   9. ОТРИСОВКА
+   ============================================================ */
+function drawSpec(sp, sr, dur){
+  const cv = document.getElementById("spec");
+  const W = cv.clientWidth, H = 260;
+  cv.width = W*devicePixelRatio; cv.height = H*devicePixelRatio;
+  const g = cv.getContext("2d"); g.scale(devicePixelRatio, devicePixelRatio);
+  g.fillStyle = "#1C2028"; g.fillRect(0,0,W,H);
+
+  const cols = sp.cols; if(!cols.length) return;
+  const bins = Math.floor(cols[0].length*0.72);          // до ~0,72 частоты Найквиста
+  const img = g.createImageData(W, H);
+  for(let px=0; px<W; px++){
+    const c = cols[Math.min(cols.length-1, Math.floor(px*cols.length/W))];
+    for(let py=0; py<H; py++){
+      const b = Math.floor((1 - py/H)*bins);
+      const db = 20*Math.log10(c[b] + 1e-9);
+      let t = (db + 78)/62; t = Math.max(0, Math.min(1, t));
+      const o = (py*W + px)*4;
+      img.data[o]   = 28 + t*t*228;
+      img.data[o+1] = 32 + t*168;
+      img.data[o+2] = 40 + t*190;
+      img.data[o+3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  g.fillStyle = "rgba(230,235,240,.75)"; g.font = "11px ui-monospace, monospace";
+  const nyq = sr/2, top = nyq*0.72;
+  for(let f=2000; f<top; f+=2000){
+    const y = H - (f/top)*H;
+    g.fillRect(0, y, 16, 1);
+    g.fillText((f/1000)+"к", 20, y+4);
+  }
+  document.getElementById("spectxt").textContent =
+    dur.toFixed(1)+" с · 0–"+(top/1000).toFixed(1)+" кГц";
+}
+
+function colorFor(s){
+  return s < .34 ? "var(--ok)" : s < .67 ? "var(--caution)" : "var(--alert)";
+}
+
+function render(R, name){
+  const V = R.verdict;
+  document.getElementById("out").classList.remove("hidden");
+  document.getElementById("src").textContent = name;
+
+  // циферблат
+  const sc = V.score;
+  document.getElementById("score").textContent = sc === null ? "—" : sc;
+  const arc = document.getElementById("arc");
+  const C = 245;
+  arc.style.strokeDashoffset = C - C*(sc||0)/100;
+  const col = sc < 34 ? "#6FBF8B" : sc < 67 ? "#E4A649" : "#E2645F";
+  arc.setAttribute("stroke", col);
+  document.getElementById("score").style.color = col;
+
+  const L = document.getElementById("label"), P = document.getElementById("sub");
+  if(sc < 34){
+    L.textContent = "Признаков синтеза не обнаружено";
+    P.textContent = "Измеренные характеристики укладываются в свойства живой речи.";
+  } else if(sc < 67){
+    L.textContent = "Есть отклонения";
+    P.textContent = "Часть признаков нетипична для живой речи. Возможен синтез, сжатие или запись через телефонный канал.";
+  } else {
+    L.textContent = "Высокая вероятность синтеза";
+    P.textContent = "Несколько независимых признаков одновременно указывают на искусственное происхождение записи.";
+  }
+  L.style.color = col;
+
+  const F = R.F;
+  document.getElementById("meta").innerHTML = [
+    "длительность "+F.duration.toFixed(1)+" с",
+    "частота дискретизации "+(F.sampleRate/1000).toFixed(1)+" кГц",
+    "озвученных кадров "+Math.round(F.voicedRatio*100)+" %",
+    F.f0mean ? "средний тон "+Math.round(F.f0mean)+" Гц" : "тон не определён",
+    "пауз "+F.pauseCount
+  ].map(t=>"<span>"+t+"</span>").join("");
+
+  // признаки
+  const host = document.getElementById("feats"); host.innerHTML = "";
+  for(const it of V.items){
+    const d = document.createElement("div"); d.className = "feat";
+    const s = it.susp;
+    const valTxt = it.value === null || !isFinite(it.value) ? "не измерен" : it.fmt(it.value);
+    const tagTxt = s === null ? "нет данных" : s < .34 ? "в норме" : s < .67 ? "отклонение" : "подозрительно";
+    const c = s === null ? "var(--faint)" : colorFor(s);
+    d.innerHTML =
+      '<div class="frow">'+
+        '<span class="fname">'+it.name+'</span>'+
+        '<span class="tag" style="color:'+c+'">'+tagTxt+'</span>'+
+        '<span class="fval">'+valTxt+'</span>'+
+      '</div>'+
+      '<div class="fbar"><i style="width:'+((s===null?0:s)*100)+'%;background:'+c+'"></i></div>'+
+      '<div class="fnote">'+it.note+' <span style="color:var(--faint)">('+it.norm+')</span></div>';
+    host.appendChild(d);
+  }
+
+  // предупреждения о границах применимости
+  const w = [];
+  if(F.duration < 3) w.push("запись короче трёх секунд — статистика признаков ненадёжна");
+  if(F.voicedRatio < 0.15) w.push("мало озвученной речи — признаки тона измерены по малой выборке");
+  if(F.rolloff && F.rolloff < 4200) w.push("спектр обрезан около "+(F.rolloff/1000).toFixed(1)+" кГц: похоже на телефонный канал, часть верхнечастотных признаков недостоверна");
+  document.getElementById("warn").innerHTML = w.length
+    ? "<strong>Ограничения этого измерения:</strong> "+w.join("; ")+"."
+    : "<strong>Как читать результат.</strong> Оценка — не доказательство. Это сводка измеримых отклонений, каждое из которых объяснено выше. Решение принимает человек.";
+
+  drawSpec(R.spec, R.sr, R.dur);
+  window.__R = R;
+}
+
+/* ============================================================
+   10. ЭКСПОРТ ДАННЫХ ДЛЯ ОБУЧЕНИЯ
+   ============================================================ */
+const COLS = ["jitter","shimmer","f0sd","f0mean","voicedRatio","rolloff",
+              "flatness","hfRatio","floorSd","digital","pauseCv","duration","sampleRate"];
+
+function download(text, name, type){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], {type}));
+  a.download = name; a.click(); URL.revokeObjectURL(a.href);
+}
+
+document.getElementById("csv").onclick = () => {
+  const F = window.__R.F;
+  const head = ["file","label"].concat(COLS).join(",");
+  const row  = ['"'+(F.source||"")+'"', "UNKNOWN"]
+    .concat(COLS.map(k => F[k]===null||F[k]===undefined ? "" : (+F[k]).toFixed(6))).join(",");
+  download(head+"\n"+row+"\n", "priznaki.csv", "text/csv");
+};
+document.getElementById("json").onclick = () => {
+  const R = window.__R;
+  const rep = {
+    файл: R.F.source, оценка: R.verdict.score, признаки: R.F,
+    разбор: R.verdict.items.map(i => ({признак:i.name, значение:i.value,
+      подозрительность:i.susp, вес:i.weight, норма:i.norm}))
+  };
+  download(JSON.stringify(rep, null, 2), "otchet.json", "application/json");
+};
+document.getElementById("again").onclick = () => {
+  document.getElementById("out").classList.add("hidden");
+  document.getElementById("status").textContent = "";
+  scrollTo({top:0, behavior:"smooth"});
+};
+
+/* ============================================================
+   11. ВВОД
+   ============================================================ */
+const st = document.getElementById("status");
+const setStatus = t => st.textContent = t;
+
+async function handle(file){
+  try{
+    setStatus("Чтение файла…");
+    const ab = await file.arrayBuffer();
+    setStatus("Разбор сигнала — это занимает несколько секунд…");
+    await new Promise(r => setTimeout(r, 40));
+    const R = await analyze(ab, file.name || "запись");
+    render(R, file.name || "запись с микрофона");
+    setStatus("");
+    document.getElementById("out").scrollIntoView({behavior:"smooth", block:"start"});
+  }catch(e){
+    setStatus("Не удалось разобрать запись: " + (e.message || e));
+  }
+}
+
+document.getElementById("pick").onclick = () => document.getElementById("file").click();
+document.getElementById("file").onchange = e => { if(e.target.files[0]) handle(e.target.files[0]); };
+
+const drop = document.getElementById("drop");
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.add("hot"); }));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.remove("hot"); }));
+drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if(f) handle(f); });
+
+// запись с микрофона
+let mr = null, chunks = [];
+const recBtn = document.getElementById("rec");
+recBtn.onclick = async () => {
+  if(mr && mr.state === "recording"){ mr.stop(); return; }
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({audio:{
+      echoCancellation:false, noiseSuppression:false, autoGainControl:false }});
+    mr = new MediaRecorder(stream); chunks = [];
+    mr.ondataavailable = e => chunks.push(e.data);
+    mr.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      recBtn.textContent = "Записать с микрофона"; recBtn.classList.add("rec");
+      const blob = new Blob(chunks, {type: mr.mimeType});
+      blob.name = "запись с микрофона";
+      handle(blob);
+    };
+    mr.start();
+    recBtn.textContent = "Остановить запись"; recBtn.classList.remove("rec");
+    setStatus("Идёт запись. Говорите 10–15 секунд, затем остановите.");
+  }catch(e){
+    setStatus("Микрофон недоступен: " + (e.message || e));
+  }
+};
+
+addEventListener("resize", () => { if(window.__R) drawSpec(window.__R.spec, window.__R.sr, window.__R.dur); });
+</script>
+</body>
+</html>
