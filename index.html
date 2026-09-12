@@ -109,7 +109,13 @@ footer{margin-top:40px; padding-top:16px; border-top:1px solid var(--line); font
     <button class="rec" id="rec">Записать с микрофона</button>
   </div>
   <input type="file" id="file">
+  <p style="font-size:12px;opacity:.55;margin-top:10px">версия 3 · с прослушиванием входного сигнала</p>
   <div class="status" id="status"></div>
+  <div id="playback" class="hidden" style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--panel)">
+    <div style="font-size:13px; opacity:.75; margin-bottom:8px">Что услышала программа:</div>
+    <audio id="player" controls style="width:100%"></audio>
+    <div id="plevel" style="font-size:12px; opacity:.65; margin-top:8px"></div>
+  </div>
 </div>
 
 <div id="out" class="hidden">
@@ -451,6 +457,42 @@ function evaluate(F){
    ============================================================ */
 const MAXSEC = 30;
 
+/* Собираем WAV из того самого массива, который пошёл в анализ.
+   Нужно для проверки: слышит ли программа звук вообще. */
+function makeWav(x, sr){
+  const n = x.length, b = new ArrayBuffer(44 + n*2), v = new DataView(b);
+  const ws = (o,s) => { for(let i=0;i<s.length;i++) v.setUint8(o+i, s.charCodeAt(i)); };
+  ws(0,"RIFF"); v.setUint32(4, 36+n*2, true); ws(8,"WAVEfmt ");
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,sr,true); v.setUint32(28,sr*2,true);
+  v.setUint16(32,2,true); v.setUint16(34,16,true);
+  ws(36,"data"); v.setUint32(40, n*2, true);
+  for(let i=0;i<n;i++){
+    let s = Math.max(-1, Math.min(1, x[i]));
+    v.setInt16(44+i*2, s<0 ? s*0x8000 : s*0x7FFF, true);
+  }
+  return new Blob([b], {type:"audio/wav"});
+}
+
+let lastUrl = null;
+function showPlayback(x, sr, peak){
+  const box = document.getElementById("playback");
+  const pl  = document.getElementById("player");
+  if(lastUrl) URL.revokeObjectURL(lastUrl);
+  lastUrl = URL.createObjectURL(makeWav(x, sr));
+  pl.src = lastUrl;
+  const db = peak > 0 ? (20*Math.log10(peak)).toFixed(1) : null;
+  let note;
+  if(peak === 0)        note = "Сигнал полностью пустой — микрофон или файл не дали ничего.";
+  else if(peak < 0.005) note = "Уровень крайне низкий — похоже, микрофон почти ничего не поймал.";
+  else if(peak < 0.05)  note = "Уровень низкий, но звук есть. Говорите ближе к микрофону.";
+  else                  note = "Уровень нормальный.";
+  document.getElementById("plevel").textContent =
+    `Длительность ${(x.length/sr).toFixed(1)} с · частота ${sr} Гц · пик ${db===null?"—":db+" дБ"}. ${note}`
+    + (peak > 0 ? " Громкость выровнена, поэтому тихая запись звучит громче оригинала." : "");
+  box.classList.remove("hidden");
+}
+
 async function analyze(arrayBuffer, sourceName){
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   let buf;
@@ -465,11 +507,16 @@ async function analyze(arrayBuffer, sourceName){
   const sr = buf.sampleRate;
   let x = toMono(buf);
   if(x.length > sr*MAXSEC) x = x.slice(0, sr*MAXSEC);
-  if(x.length < sr*0.6) throw new Error("Запись короче 0,6 секунды — признаки не измеримы.");
 
   // нормализация по пику
   let pk = 0; for(let i=0;i<x.length;i++){ const a = Math.abs(x[i]); if(a>pk) pk=a; }
   if(pk > 0) for(let i=0;i<x.length;i++) x[i] /= pk;
+
+  // Плеер показываем до всех проверок: если анализ дальше упадёт,
+  // пользователь всё равно услышит, что именно попало на вход.
+  showPlayback(x, sr, pk);
+
+  if(x.length < sr*0.6) throw new Error("Запись короче 0,6 секунды — признаки не измеримы.");
 
   // основной тон — на 8 кГц
   const fac = Math.max(1, Math.round(sr/8000));
