@@ -108,7 +108,7 @@ footer{margin-top:40px; padding-top:16px; border-top:1px solid var(--line); font
     <button class="primary" id="pick">Выбрать файл</button>
     <button class="rec" id="rec">Записать с микрофона</button>
   </div>
-  <input type="file" id="file" accept="audio/*">
+  <input type="file" id="file">
   <div class="status" id="status"></div>
 </div>
 
@@ -453,7 +453,13 @@ const MAXSEC = 30;
 
 async function analyze(arrayBuffer, sourceName){
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
-  const buf = await ctx.decodeAudioData(arrayBuffer);
+  let buf;
+  try {
+    buf = await ctx.decodeAudioData(arrayBuffer);
+  } catch(e) {
+    await ctx.close();
+    throw new Error("Этот браузер не смог прочитать формат файла. Если это голосовое из Telegram (.ogg), откройте страницу в Chrome — Safari формат OGG не поддерживает. Либо сконвертируйте запись в .wav или .m4a.");
+  }
   await ctx.close();
 
   const sr = buf.sampleRate;
